@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import { DndProvider, useDrag, useDrop, DropTargetMonitor } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { v4 as uuidv4 } from 'uuid';
 
 interface ItemType {
   id: string;
   name: string;
+}
+
+interface DraggedItem extends ItemType {
+  type: string;
+  index: number;
 }
 
 const DraggableItem: React.FC<{ item: ItemType; index: number; moveItem: (dragIndex: number, hoverIndex: number) => void }> = ({ item, index, moveItem }) => {
@@ -12,7 +18,7 @@ const DraggableItem: React.FC<{ item: ItemType; index: number; moveItem: (dragIn
 
   const [, drop] = useDrop({
     accept: 'ITEM',
-    hover: (draggedItem: { index: number; id: string; type: string }, monitor: DropTargetMonitor) => {
+    hover: (draggedItem: DraggedItem, monitor: DropTargetMonitor) => {
       if (!ref.current) {
         return;
       }
@@ -38,7 +44,7 @@ const DraggableItem: React.FC<{ item: ItemType; index: number; moveItem: (dragIn
 
   const [{ isDragging }, drag] = useDrag({
     type: 'ITEM',
-    item: { index, id: item.id, type: 'ITEM' },
+    item: { ...item, index, type: 'ITEM' },
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
@@ -62,11 +68,13 @@ const DraggableItem: React.FC<{ item: ItemType; index: number; moveItem: (dragIn
   );
 };
 
-const Container: React.FC<{ items: ItemType[]; moveItem: (dragIndex: number, hoverIndex: number) => void; onDrop: (item: ItemType) => void }> = ({ items, moveItem, onDrop }) => {
+const Container: React.FC<{ items: ItemType[]; moveItem: (dragIndex: number, hoverIndex: number) => void; onDrop: (item: DraggedItem) => void }> = ({ items, moveItem, onDrop }) => {
   const [, drop] = useDrop({
     accept: 'ITEM',
-    drop: (item: { id: string; index: number; name: string }) => {
-      onDrop(item);
+    drop: (item: DraggedItem, monitor) => {
+      if (!monitor.didDrop()) {
+        onDrop(item);
+      }
     },
   });
 
@@ -88,10 +96,10 @@ const Container: React.FC<{ items: ItemType[]; moveItem: (dragIndex: number, hov
   );
 };
 
-const TrashBin: React.FC<{ onDrop: (item: ItemType) => void }> = ({ onDrop }) => {
+const TrashBin: React.FC<{ onDrop: (item: DraggedItem) => void }> = ({ onDrop }) => {
   const [, drop] = useDrop({
     accept: 'ITEM',
-    drop: (item: { id: string, name:string}) => {
+    drop: (item: DraggedItem) => {
       onDrop(item);
     },
   });
@@ -122,7 +130,7 @@ const DragAndDropDemo: React.FC = () => {
     { id: '3', name: 'Item 3' },
   ];
 
-  const [availableItems, setAvailableItems] = useState<ItemType[]>(initialItems);
+  const [availableItems] = useState<ItemType[]>(initialItems);
   const [containerItems, setContainerItems] = useState<ItemType[]>([]);
 
   const moveItem = (dragIndex: number, hoverIndex: number) => {
@@ -132,15 +140,14 @@ const DragAndDropDemo: React.FC = () => {
     setContainerItems(updatedItems);
   };
 
-  const handleDrop = (droppedItem: { id: string }) => {
-    const item = availableItems.find((i) => i.id === droppedItem.id);
-    if (item) {
-      setAvailableItems((prevItems) => prevItems.filter((i) => i.id !== item.id));
-      setContainerItems((prevItems) => [...prevItems, item]);
+  const handleDrop = (droppedItem: DraggedItem) => {
+    if (!containerItems.some(item => item.id === droppedItem.id)) {
+      const newItem: ItemType = { id: uuidv4(), name: droppedItem.name };
+      setContainerItems((prevItems) => [...prevItems, newItem]);
     }
   };
 
-  const handleTrashDrop = (droppedItem: { id: string }) => {
+  const handleTrashDrop = (droppedItem: DraggedItem) => {
     setContainerItems((prevItems) => prevItems.filter((i) => i.id !== droppedItem.id));
   };
 
