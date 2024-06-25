@@ -1,20 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { DndProvider, useDrag, useDrop, DropTargetMonitor } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { v4 as uuidv4 } from 'uuid';
 
+// Define a set of draggable components
+const components = {
+  Button: () => <button>Button</button>,
+  Input: () => <input placeholder="Input" />,
+  Text: () => <p>Text</p>,
+};
+
 interface ItemType {
   id: string;
-  name: string;
+  type: keyof typeof components;
+  children?: ItemType[];
 }
 
 interface DraggedItem extends ItemType {
-  type: string;
-  index: number;
+  parentId: string | null;
 }
 
-const DraggableItem: React.FC<{ item: ItemType; index: number; moveItem: (dragIndex: number, hoverIndex: number) => void }> = ({ item, index, moveItem }) => {
-  const ref = React.useRef<HTMLDivElement>(null);
+export const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void }> = ({ item, parentId, moveItem }) => {
+  const ref = useRef<HTMLDivElement>(null);
 
   const [, drop] = useDrop({
     accept: 'ITEM',
@@ -22,35 +29,33 @@ const DraggableItem: React.FC<{ item: ItemType; index: number; moveItem: (dragIn
       if (!ref.current) {
         return;
       }
-      const dragIndex = draggedItem.index;
-      const hoverIndex = index;
-      if (dragIndex === hoverIndex) {
-        return;
-      }
-      const hoverBoundingRect = ref.current?.getBoundingClientRect();
+      const hoverBoundingRect = ref.current.getBoundingClientRect();
       const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
       const clientOffset = monitor.getClientOffset();
       const hoverClientY = clientOffset!.y - hoverBoundingRect.top;
-      if (dragIndex < hoverIndex && hoverClientY < hoverMiddleY) {
+
+      if (draggedItem.id === item.id || draggedItem.parentId === item.id) {
         return;
       }
-      if (dragIndex > hoverIndex && hoverClientY > hoverMiddleY) {
-        return;
+
+      if (hoverClientY > hoverMiddleY) {
+        moveItem(draggedItem, item.id);
+        draggedItem.parentId = item.id;
       }
-      moveItem(dragIndex, hoverIndex);
-      draggedItem.index = hoverIndex;
     },
   });
 
   const [{ isDragging }, drag] = useDrag({
     type: 'ITEM',
-    item: { ...item, index, type: 'ITEM' },
+    item: { ...item, parentId },
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
   });
 
   drag(drop(ref));
+
+  const Component = components[item.type];
 
   return (
     <div
@@ -63,12 +68,19 @@ const DraggableItem: React.FC<{ item: ItemType; index: number; moveItem: (dragIn
         cursor: 'move',
       }}
     >
-      {item.name}
+      <Component />
+      {item.children && (
+        <div style={{ paddingLeft: '16px' }}>
+          {item.children.map((child) => (
+            <DraggableItem key={child.id} item={child} parentId={item.id} moveItem={moveItem} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
 
-const Container: React.FC<{ items: ItemType[]; moveItem: (dragIndex: number, hoverIndex: number) => void; onDrop: (item: DraggedItem) => void }> = ({ items, moveItem, onDrop }) => {
+const Container: React.FC<{ items: ItemType[]; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void; onDrop: (item: DraggedItem) => void }> = ({ items, moveItem, onDrop }) => {
   const [, drop] = useDrop({
     accept: 'ITEM',
     drop: (item: DraggedItem, monitor) => {
@@ -89,8 +101,8 @@ const Container: React.FC<{ items: ItemType[]; moveItem: (dragIndex: number, hov
         width: '200px',
       }}
     >
-      {items.map((item, index) => (
-        <DraggableItem key={item.id} item={item} index={index} moveItem={moveItem} />
+      {items.map((item) => (
+        <DraggableItem key={item.id} item={item} parentId={null} moveItem={moveItem} />
       ))}
     </div>
   );
@@ -125,30 +137,70 @@ const TrashBin: React.FC<{ onDrop: (item: DraggedItem) => void }> = ({ onDrop })
 
 const DragAndDropDemo: React.FC = () => {
   const initialItems: ItemType[] = [
-    { id: '1', name: 'Item 1' },
-    { id: '2', name: 'Item 2' },
-    { id: '3', name: 'Item 3' },
+    { id: '1', type: 'Button', children: [] },
+    { id: '2', type: 'Input', children: [] },
+    { id: '3', type: 'Text', children: [] },
   ];
 
   const [availableItems] = useState<ItemType[]>(initialItems);
   const [containerItems, setContainerItems] = useState<ItemType[]>([]);
 
-  const moveItem = (dragIndex: number, hoverIndex: number) => {
-    const updatedItems = [...containerItems];
-    const [movedItem] = updatedItems.splice(dragIndex, 1);
-    updatedItems.splice(hoverIndex, 0, movedItem);
-    setContainerItems(updatedItems);
+  const moveItem = (draggedItem: DraggedItem, newParentId: string | null) => {
+    const removeItem = (items: ItemType[], id: string): ItemType[] => {
+      return items
+        .map(item => {
+          if (item.children) {
+            return { ...item, children: removeItem(item.children, id) };
+          }
+          return item;
+        })
+        .filter(item => item.id !== id);
+    };
+
+    const addItem = (items: ItemType[], newItem: ItemType, parentId: string | null): ItemType[] => {
+      if (!parentId) {
+        return [...items, newItem];
+      }
+      return items.map(item => {
+        if (item.id === parentId) {
+          return { ...item, children: [...(item.children || []), newItem] };
+        }
+        if (item.children) {
+          return { ...item, children: addItem(item.children, newItem, parentId) };
+        }
+        return item;
+      });
+    };
+
+    setContainerItems((prevItems) => {
+      const removedItems = removeItem(prevItems, draggedItem.id);
+      return addItem(removedItems, { ...draggedItem, id: draggedItem.id, children: draggedItem.children || [] }, newParentId);
+    });
   };
 
   const handleDrop = (droppedItem: DraggedItem) => {
-    if (!containerItems.some(item => item.id === droppedItem.id)) {
-      const newItem: ItemType = { id: uuidv4(), name: droppedItem.name };
-      setContainerItems((prevItems) => [...prevItems, newItem]);
-    }
+    setContainerItems((prevItems) => {
+      if (!prevItems.some(item => item.id === droppedItem.id)) {
+        const newItem: ItemType = { ...droppedItem, id: uuidv4() };
+        return [...prevItems, newItem];
+      }
+      return prevItems;
+    });
   };
 
   const handleTrashDrop = (droppedItem: DraggedItem) => {
-    setContainerItems((prevItems) => prevItems.filter((i) => i.id !== droppedItem.id));
+    const removeItem = (items: ItemType[], id: string): ItemType[] => {
+      return items
+        .map(item => {
+          if (item.children) {
+            return { ...item, children: removeItem(item.children, id) };
+          }
+          return item;
+        })
+        .filter(item => item.id !== id);
+    };
+
+    setContainerItems((prevItems) => removeItem(prevItems, droppedItem.id));
   };
 
   return (
@@ -156,8 +208,8 @@ const DragAndDropDemo: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px' }}>
         <div style={{ width: '200px', padding: '16px', backgroundColor: 'lightgrey' }}>
           <h3>Available Items</h3>
-          {availableItems.map((item, index) => (
-            <DraggableItem key={item.id} item={item} index={index} moveItem={() => {}} />
+          {availableItems.map((item) => (
+            <DraggableItem key={item.id} item={item} parentId={null} moveItem={() => {}} />
           ))}
         </div>
         <Container items={containerItems} moveItem={moveItem} onDrop={handleDrop} />
