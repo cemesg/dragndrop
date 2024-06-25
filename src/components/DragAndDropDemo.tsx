@@ -8,6 +8,7 @@ const components = {
   Button: () => <button>Button</button>,
   Input: () => <input placeholder="Input" />,
   Text: () => <p>Text</p>,
+  Div: () => <div>Div</div>
 };
 
 interface ItemType {
@@ -32,7 +33,10 @@ export const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; 
       const hoverBoundingRect = ref.current.getBoundingClientRect();
       const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
       const clientOffset = monitor.getClientOffset();
-      const hoverClientY = clientOffset!.y - hoverBoundingRect.top;
+      if (!clientOffset) {
+        return;
+      }
+      const hoverClientY = clientOffset.y - hoverBoundingRect.top;
 
       if (draggedItem.id === item.id || draggedItem.parentId === item.id) {
         return;
@@ -137,9 +141,10 @@ const TrashBin: React.FC<{ onDrop: (item: DraggedItem) => void }> = ({ onDrop })
 
 const DragAndDropDemo: React.FC = () => {
   const initialItems: ItemType[] = [
-    { id: '1', type: 'Button', children: [] },
-    { id: '2', type: 'Input', children: [] },
-    { id: '3', type: 'Text', children: [] },
+    { id: uuidv4(), type: 'Button', children: [] },
+    { id: uuidv4(), type: 'Input', children: [] },
+    { id: uuidv4(), type: 'Text', children: [] },
+    { id: uuidv4(), type: 'Div', children: [] },
   ];
 
   const [availableItems] = useState<ItemType[]>(initialItems);
