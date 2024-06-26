@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { DndProvider, useDrag, useDrop, DropTargetMonitor } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,7 +8,18 @@ const components = {
   Button: () => <button>Button</button>,
   Input: () => <input placeholder="Input" />,
   Text: () => <p>Text</p>,
-  Div: () => <div>Div</div>
+  Div: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  Row: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'row' }}>{children}</div>,
+  Column: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>,
+};
+
+const canHaveChildren = {
+  Button: false,
+  Input: false,
+  Text: false,
+  Div: true,
+  Row: true,
+  Column: true,
 };
 
 interface ItemType {
@@ -21,28 +32,22 @@ interface DraggedItem extends ItemType {
   parentId: string | null;
 }
 
-export const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void }> = ({ item, parentId, moveItem }) => {
+const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void }> = ({ item, parentId, moveItem }) => {
   const ref = useRef<HTMLDivElement>(null);
 
   const [, drop] = useDrop({
     accept: 'ITEM',
     hover: (draggedItem: DraggedItem, monitor: DropTargetMonitor) => {
-      if (!ref.current) {
-        return;
-      }
+      if (!ref.current) return;
       const hoverBoundingRect = ref.current.getBoundingClientRect();
       const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
       const clientOffset = monitor.getClientOffset();
-      if (!clientOffset) {
-        return;
-      }
+      if (!clientOffset) return;
       const hoverClientY = clientOffset.y - hoverBoundingRect.top;
 
-      if (draggedItem.id === item.id || draggedItem.parentId === item.id) {
-        return;
-      }
+      if (draggedItem.id === item.id || draggedItem.parentId === item.id) return;
 
-      if (hoverClientY > hoverMiddleY) {
+      if (hoverClientY > hoverMiddleY && canHaveChildren[item.type]) {
         moveItem(draggedItem, item.id);
         draggedItem.parentId = item.id;
       }
@@ -68,18 +73,19 @@ export const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; 
         opacity: isDragging ? 0.5 : 1,
         padding: '8px',
         margin: '4px',
-        backgroundColor: 'lightblue',
+        border: '1px dashed #333',
         cursor: 'move',
       }}
     >
-      <Component />
-      {item.children && (
-        <div style={{ paddingLeft: '16px' }}>
-          {item.children.map((child) => (
-            <DraggableItem key={child.id} item={child} parentId={item.id} moveItem={moveItem} />
-          ))}
-        </div>
-      )}
+      <Component>
+        {canHaveChildren[item.type] && item.children && (
+          <div style={{ paddingLeft: '16px' }}>
+            {item.children.map((child) => (
+              <DraggableItem key={child.id} item={child} parentId={item.id} moveItem={moveItem} />
+            ))}
+          </div>
+        )}
+      </Component>
     </div>
   );
 };
@@ -139,74 +145,108 @@ const TrashBin: React.FC<{ onDrop: (item: DraggedItem) => void }> = ({ onDrop })
   );
 };
 
+const TreeView: React.FC<{ items: ItemType[] }> = ({ items }) => {
+  return (
+    <ul style={{ listStyleType: 'none', paddingLeft: '16px' }}>
+      {items.map(item => (
+        <li key={item.id}>
+          <span>{item.type}</span>
+          {item.children && item.children.length > 0 && <TreeView items={item.children} />}
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+const renderHtml = (items: ItemType[]): string => {
+  const renderElement = (item: ItemType): string => {
+    const childrenHtml = item.children?.map(renderElement).join('') || '';
+    return `<${item.type.toLowerCase()}>${childrenHtml}</${item.type.toLowerCase()}>`;
+  };
+
+  return items.map(renderElement).join('');
+};
+
 const DragAndDropDemo: React.FC = () => {
   const initialItems: ItemType[] = [
     { id: uuidv4(), type: 'Button', children: [] },
     { id: uuidv4(), type: 'Input', children: [] },
     { id: uuidv4(), type: 'Text', children: [] },
     { id: uuidv4(), type: 'Div', children: [] },
+    { id: uuidv4(), type: 'Row', children: [] },
+    { id: uuidv4(), type: 'Column', children: [] },
   ];
 
-  const [availableItems] = useState<ItemType[]>(initialItems);
+  const [availableItems, setAvailableItems] = useState<ItemType[]>(initialItems);
   const [containerItems, setContainerItems] = useState<ItemType[]>([]);
 
-  const moveItem = (draggedItem: DraggedItem, newParentId: string | null) => {
-    const removeItem = (items: ItemType[], id: string): ItemType[] => {
-      return items
-        .map(item => {
-          if (item.children) {
-            return { ...item, children: removeItem(item.children, id) };
-          }
-          return item;
-        })
-        .filter(item => item.id !== id);
-    };
+  const moveItem = useCallback((draggedItem: DraggedItem, newParentId: string | null) => {
+    setContainerItems(prevItems => {
+      const removeItem = (items: ItemType[], id: string): ItemType[] => {
+        return items
+          .map(item => ({
+            ...item,
+            children: item.children ? removeItem(item.children, id) : [],
+          }))
+          .filter(item => item.id !== id);
+      };
 
-    const addItem = (items: ItemType[], newItem: ItemType, parentId: string | null): ItemType[] => {
-      if (!parentId) {
-        return [...items, newItem];
-      }
-      return items.map(item => {
-        if (item.id === parentId) {
-          return { ...item, children: [...(item.children || []), newItem] };
+      const addItem = (items: ItemType[], newItem: ItemType, parentId: string | null): ItemType[] => {
+        if (!parentId) {
+          return [...items, newItem];
         }
-        if (item.children) {
-          return { ...item, children: addItem(item.children, newItem, parentId) };
-        }
-        return item;
-      });
-    };
+        return items.map(item => ({
+          ...item,
+          children: item.id === parentId
+            ? [...(item.children || []), newItem]
+            : item.children ? addItem(item.children, newItem, parentId) : [],
+        }));
+      };
 
-    setContainerItems((prevItems) => {
       const removedItems = removeItem(prevItems, draggedItem.id);
-      return addItem(removedItems, { ...draggedItem, id: draggedItem.id, children: draggedItem.children || [] }, newParentId);
+      return addItem(removedItems, { ...draggedItem, children: draggedItem.children || [] }, newParentId);
     });
-  };
+  }, []);
 
-  const handleDrop = (droppedItem: DraggedItem) => {
-    setContainerItems((prevItems) => {
+  const handleDrop = useCallback((droppedItem: DraggedItem) => {
+    setContainerItems(prevItems => {
       if (!prevItems.some(item => item.id === droppedItem.id)) {
-        const newItem: ItemType = { ...droppedItem, id: uuidv4() };
-        return [...prevItems, newItem];
+        return [...prevItems, { ...droppedItem, id: uuidv4() }];
       }
       return prevItems;
     });
+  }, []);
+
+  const handleTrashDrop = useCallback((droppedItem: DraggedItem) => {
+    setContainerItems(prevItems => {
+      const removeItem = (items: ItemType[], id: string): ItemType[] => {
+        return items
+          .map(item => ({
+            ...item,
+            children: item.children ? removeItem(item.children, id) : [],
+          }))
+          .filter(item => item.id !== id);
+      };
+      return removeItem(prevItems, droppedItem.id);
+    });
+  }, []);
+
+  const handlePrintHtml = () => {
+    const html = renderHtml(containerItems);
+    console.log(html);
+    alert(html);
   };
 
-  const handleTrashDrop = (droppedItem: DraggedItem) => {
-    const removeItem = (items: ItemType[], id: string): ItemType[] => {
-      return items
-        .map(item => {
-          if (item.children) {
-            return { ...item, children: removeItem(item.children, id) };
-          }
-          return item;
-        })
-        .filter(item => item.id !== id);
-    };
-
-    setContainerItems((prevItems) => removeItem(prevItems, droppedItem.id));
-  };
+  useEffect(() => {
+    setAvailableItems([
+      { id: uuidv4(), type: 'Button', children: [] },
+      { id: uuidv4(), type: 'Input', children: [] },
+      { id: uuidv4(), type: 'Text', children: [] },
+      { id: uuidv4(), type: 'Div', children: [] },
+      { id: uuidv4(), type: 'Row', children: [] },
+      { id: uuidv4(), type: 'Column', children: [] },
+    ]);
+  }, [containerItems]);
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -219,7 +259,14 @@ const DragAndDropDemo: React.FC = () => {
         </div>
         <Container items={containerItems} moveItem={moveItem} onDrop={handleDrop} />
         <TrashBin onDrop={handleTrashDrop} />
+        <div style={{ width: '200px', padding: '16px', backgroundColor: 'lightgrey' }}>
+          <h3>Tree View</h3>
+          <TreeView items={containerItems} />
+        </div>
       </div>
+      <button onClick={handlePrintHtml} style={{ marginTop: '16px' }}>
+        Print HTML
+      </button>
     </DndProvider>
   );
 };
