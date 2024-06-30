@@ -8,9 +8,9 @@ const components = {
   Button: () => <button>Button</button>,
   Input: () => <input placeholder="Input" />,
   Text: () => <p>Text</p>,
-  Div: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
-  Row: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'row' }}>{children}</div>,
-  Column: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>,
+  Div: ({ children }: { children?: React.ReactNode }) => <div>div{children}</div>,
+  Row: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'row' }}>row{children}</div>,
+  Column: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'column' }}>column{children}</div>,
 };
 
 const canHaveChildren = {
@@ -66,27 +66,33 @@ const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveIte
 
   const Component = components[item.type];
 
-  return (
+  return (<>
     <div
       ref={ref}
       style={{
         opacity: isDragging ? 0.5 : 1,
-        padding: '8px',
+        padding: canHaveChildren[item.type] ? 0 : '8px',
         margin: '4px',
         border: '1px dashed #333',
         cursor: 'move',
+        minWidth: '10px',
+        minHeight: '10px',
+        display: canHaveChildren[item.type] ? 'flex' : 'block',
+        flexDirection: canHaveChildren[item.type] && item.type === 'Row' ? 'row' : 'column',
       }}
     >
+
+
       <Component>
-        {canHaveChildren[item.type] && item.children && (
-          <div style={{ paddingLeft: '16px' }}>
-            {item.children.map((child) => (
+
+            {item?.children?.map((child) => (
               <DraggableItem key={child.id} item={child} parentId={item.id} moveItem={moveItem} />
             ))}
-          </div>
-        )}
+
       </Component>
-    </div>
+      </div>
+    
+    </>
   );
 };
 
@@ -107,8 +113,8 @@ const Container: React.FC<{ items: ItemType[]; moveItem: (draggedItem: DraggedIt
         padding: '16px',
         margin: '8px',
         backgroundColor: 'lightgrey',
-        minHeight: '200px',
-        width: '200px',
+        minHeight: '1000px',
+        width: '1000px',
       }}
     >
       {items.map((item) => (
@@ -165,6 +171,32 @@ const renderHtml = (items: ItemType[]): string => {
   };
 
   return items.map(renderElement).join('');
+};
+
+const Preview: React.FC<{ items: ItemType[] }> = ({ items }) => {
+  const renderPreview = (item: ItemType): JSX.Element => {
+    const Component = components[item.type];
+    return (
+      <Component key={item.id}>
+        {canHaveChildren[item.type] && item.children && item.children.map(renderPreview)}
+      </Component>
+    );
+  };
+
+  return (
+    <div
+      style={{
+        padding: '16px',
+        margin: '8px',
+        backgroundColor: 'white',
+        minHeight: '1000px',
+        width: '1000px',
+        border: '1px solid #ddd',
+      }}
+    >
+      {items.map(renderPreview)}
+    </div>
+  );
 };
 
 const DragAndDropDemo: React.FC = () => {
@@ -267,6 +299,8 @@ const DragAndDropDemo: React.FC = () => {
       <button onClick={handlePrintHtml} style={{ marginTop: '16px' }}>
         Print HTML
       </button>
+      <h3>Preview</h3>
+      <Preview items={containerItems} />
     </DndProvider>
   );
 };
