@@ -1,61 +1,32 @@
 const fs = require('fs');
 const path = require('path');
-const ts = require('typescript');
 
-const generateLitElementsList = (specificFolder) => {
+const generateElementsList = (specificFolder) => {
   const nodeModulesPath = path.resolve(__dirname, 'node_modules', specificFolder);
-  const outputFilePath = path.resolve(__dirname, 'src', 'litElementsList.json');
+  const outputFilePath = path.resolve(__dirname, 'src', 'elementsList.json');
 
-  const litElements = [];
+  const elements = [];
 
   const processFile = (filePath) => {
-    const sourceFile = ts.createSourceFile(
-      filePath,
-      fs.readFileSync(filePath, 'utf8'),
-      ts.ScriptTarget.Latest,
-      true
-    );
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    const classRegex = /class\s+(\w+)\s+{/g;
+    let match;
 
-    const visit = (node) => {
-      if (ts.isClassDeclaration(node) && node.decorators) {
-        let extendsLitElement = false;
-        if (node.heritageClauses) {
-          node.heritageClauses.forEach(clause => {
-            if (clause.types) {
-              clause.types.forEach(type => {
-                if (type.expression && type.expression.escapedText === 'LitElement') {
-                  extendsLitElement = true;
-                }
-              });
-            }
-          });
-        }
+    while ((match = classRegex.exec(fileContent)) !== null) {
+      const className = match[1];
+      const properties = [];
+      const propertyRegex = /@property\(([^)]*)\)\s*\n\s*(\w+)\s*(\w+)\s*;/g;
+      let propertyMatch;
 
-        if (extendsLitElement) {
-          const className = node.name.text;
-          const properties = [];
-
-          node.members.forEach(member => {
-            if (member.decorators) {
-              member.decorators.forEach(decorator => {
-                if (ts.isCallExpression(decorator.expression) &&
-                    ts.isIdentifier(decorator.expression.expression) &&
-                    decorator.expression.expression.text === 'property') {
-                  properties.push(member.name.text);
-                }
-              });
-            }
-          });
-
-          if (properties.length > 0) {
-            litElements.push({ className, properties });
-          }
-        }
+      while ((propertyMatch = propertyRegex.exec(fileContent)) !== null) {
+        const property = propertyMatch[3];
+        properties.push(property);
       }
-      ts.forEachChild(node, visit);
-    };
 
-    ts.forEachChild(sourceFile, visit);
+      if (properties.length > 0) {
+        elements.push({ className, properties });
+      }
+    }
   };
 
   const traverseDirectory = (dir) => {
@@ -71,14 +42,14 @@ const generateLitElementsList = (specificFolder) => {
 
   traverseDirectory(nodeModulesPath);
 
-  fs.writeFile(outputFilePath, JSON.stringify(litElements, null, 2), (err) => {
+  fs.writeFile(outputFilePath, JSON.stringify(elements, null, 2), (err) => {
     if (err) {
-      console.error('Error writing litElementsList.json:', err);
+      console.error('Error writing elementsList.json:', err);
       return;
     }
-    console.log('litElementsList.json has been saved.');
+    console.log('elementsList.json has been saved.');
   });
 };
 
 // Replace 'lit' with the folder name you want to parse within node_modules
-generateLitElementsList('lit');
+generateElementsList('lit');
