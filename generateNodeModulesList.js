@@ -1,29 +1,69 @@
 const fs = require('fs');
 const path = require('path');
+const ts = require('typescript');
 
-const generateNodeModulesList = () => {
-  const nodeModulesPath = path.resolve(__dirname, 'node_modules');
-  const outputFilePath = path.resolve(__dirname, 'src', 'nodeModulesList.json');
+const generateLitElementsList = (specificFolder) => {
+  const nodeModulesPath = path.resolve(__dirname, 'node_modules', specificFolder);
+  const outputFilePath = path.resolve(__dirname, 'src', 'litElementsList.json');
 
-  fs.readdir(nodeModulesPath, (err, files) => {
+  const litElements = [];
+
+  const processFile = (filePath) => {
+    const sourceFile = ts.createSourceFile(
+      filePath,
+      fs.readFileSync(filePath, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true
+    );
+
+    const visit = (node) => {
+      if (ts.isClassDeclaration(node) && node.name && node.name.text.endsWith('Element')) {
+        const className = node.name.text;
+        const properties = [];
+
+        node.members.forEach(member => {
+          if (member.decorators) {
+            member.decorators.forEach(decorator => {
+              if (ts.isCallExpression(decorator.expression) &&
+                  ts.isIdentifier(decorator.expression.expression) &&
+                  decorator.expression.expression.text === 'property') {
+                properties.push(member.name.text);
+              }
+            });
+          }
+        });
+
+        if (properties.length > 0) {
+          litElements.push({ className, properties });
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+
+    ts.forEachChild(sourceFile, visit);
+  };
+
+  const traverseDirectory = (dir) => {
+    fs.readdirSync(dir).forEach(file => {
+      const fullPath = path.join(dir, file);
+      if (fs.lstatSync(fullPath).isDirectory()) {
+        traverseDirectory(fullPath);
+      } else if (fullPath.endsWith('.ts') || fullPath.endsWith('.js')) {
+        processFile(fullPath);
+      }
+    });
+  };
+
+  traverseDirectory(nodeModulesPath);
+
+  fs.writeFile(outputFilePath, JSON.stringify(litElements, null, 2), (err) => {
     if (err) {
-      console.error('Error reading node_modules:', err);
+      console.error('Error writing litElementsList.json:', err);
       return;
     }
-
-    // Filter only directories (node modules)
-    const nodeModules = files.filter(file => fs.lstatSync(path.join(nodeModulesPath, file)).isDirectory());
-
-    // Write the list to a JSON file
-    fs.writeFile(outputFilePath, JSON.stringify(nodeModules, null, 2), (writeErr) => {
-      if (writeErr) {
-        console.error('Error writing nodeModulesList.json:', writeErr);
-        return;
-      }
-      console.log('nodeModulesList.json has been saved.');
-    });
+    console.log('litElementsList.json has been saved.');
   });
 };
 
-// Run the function to generate the list
-generateNodeModulesList();
+// Replace 'lit' with the folder name you want to parse within node_modules
+generateLitElementsList('lit');
