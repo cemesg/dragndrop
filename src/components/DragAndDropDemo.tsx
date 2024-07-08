@@ -64,7 +64,6 @@ interface DraggedItem extends ItemType {
   parentId: string | null;
 }
 
-// Example usage in DragAndDropDemo
 const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void; onClick: (item: ItemType) => void }> = ({ item, parentId, moveItem, onClick }) => {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -116,7 +115,10 @@ const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveIte
         display: canHaveChildren[item.type] ? 'flex' : 'block',
         flexDirection: canHaveChildren[item.type] && item.type === 'Row' ? 'row' : 'column',
       }}
-      onClick={() => onClick(item)}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(item);
+      }}
     >
       <ClickableComponent>
         {item?.children?.map((child) => (
@@ -277,11 +279,28 @@ const DragAndDropDemo: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const findItemById = (items: ItemType[], id: string): ItemType | null => {
+      for (const item of items) {
+        if (item.id === id) {
+          return item;
+        }
+        if (item.children) {
+          const found = findItemById(item.children, id);
+          if (found) {
+            return found;
+          }
+        }
+      }
+      return null;
+    };
+  
     if (selectedItem) {
-      const updatedSelectedItem = containerItems.find(item => item.id === selectedItem.id) || null;
+      const updatedSelectedItem = findItemById(containerItems, selectedItem.id);
       setSelectedItem(updatedSelectedItem);
+      console.log("selectedEffect");
     }
   }, [containerItems, selectedItem]);
+  
 
   const handleDrop = useCallback((droppedItem: DraggedItem) => {
     setContainerItems(prevItems => {
@@ -314,6 +333,8 @@ const DragAndDropDemo: React.FC = () => {
 
   const handleItemClick = (item: ItemType) => {
     setSelectedItem(selectedItem?.id === item.id ? null : item);
+    console.log("clicked on " + item.type)
+    
   };
 
   useEffect(() => {
