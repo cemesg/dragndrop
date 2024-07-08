@@ -3,8 +3,6 @@ import { DndProvider, useDrag, useDrop, DropTargetMonitor } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { v4 as uuidv4 } from 'uuid';
 
-
-// Define a set of draggable components
 const components = {
   Button: () => <button style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', backgroundColor: '#007BFF', color: 'white', cursor: 'pointer' }}>Button</button>,
   Input: () => <input placeholder="Input" style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', width: '100%' }} />,
@@ -67,7 +65,7 @@ interface DraggedItem extends ItemType {
 }
 
 // Example usage in DragAndDropDemo
-const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void }> = ({ item, parentId, moveItem }) => {
+const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void; onClick: (item: ItemType) => void }> = ({ item, parentId, moveItem, onClick }) => {
   const ref = useRef<HTMLDivElement>(null);
 
   const [, drop] = useDrop({
@@ -101,10 +99,6 @@ const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveIte
 
   const ClickableComponent = ClickableComponents[item.type];
 
-  const handleClick = () => {
-    alert(`Clicked on: ${item.type}, ID: ${item.id}`);
-  };
-
   return (
     <div
       ref={ref}
@@ -122,17 +116,18 @@ const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveIte
         display: canHaveChildren[item.type] ? 'flex' : 'block',
         flexDirection: canHaveChildren[item.type] && item.type === 'Row' ? 'row' : 'column',
       }}
+      onClick={() => onClick(item)}
     >
-      <ClickableComponent onClick={handleClick}>
+      <ClickableComponent>
         {item?.children?.map((child) => (
-          <DraggableItem key={child.id} item={child} parentId={item.id} moveItem={moveItem} />
+          <DraggableItem key={child.id} item={child} parentId={item.id} moveItem={moveItem} onClick={onClick} />
         ))}
       </ClickableComponent>
     </div>
   );
 };
 
-const Container: React.FC<{ items: ItemType[]; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void; onDrop: (item: DraggedItem) => void }> = ({ items, moveItem, onDrop }) => {
+const Container: React.FC<{ items: ItemType[]; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void; onDrop: (item: DraggedItem) => void; onClick: (item: ItemType) => void }> = ({ items, moveItem, onDrop, onClick }) => {
   const [, drop] = useDrop({
     accept: 'ITEM',
     drop: (item: DraggedItem, monitor) => {
@@ -156,7 +151,7 @@ const Container: React.FC<{ items: ItemType[]; moveItem: (draggedItem: DraggedIt
       }}
     >
       {items.map((item) => (
-        <DraggableItem key={item.id} item={item} parentId={null} moveItem={moveItem} />
+        <DraggableItem key={item.id} item={item} parentId={null} moveItem={moveItem} onClick={onClick} />
       ))}
     </div>
   );
@@ -251,6 +246,7 @@ const DragAndDropDemo: React.FC = () => {
 
   const [availableItems, setAvailableItems] = useState<ItemType[]>(initialItems);
   const [containerItems, setContainerItems] = useState<ItemType[]>([]);
+  const [selectedItem, setSelectedItem] = useState<ItemType | null>(null);
 
   const moveItem = useCallback((draggedItem: DraggedItem, newParentId: string | null) => {
     setContainerItems(prevItems => {
@@ -262,7 +258,7 @@ const DragAndDropDemo: React.FC = () => {
           }))
           .filter(item => item.id !== id);
       };
-
+  
       const addItem = (items: ItemType[], newItem: ItemType, parentId: string | null): ItemType[] => {
         if (!parentId) {
           return [...items, newItem];
@@ -274,11 +270,18 @@ const DragAndDropDemo: React.FC = () => {
             : item.children ? addItem(item.children, newItem, parentId) : [],
         }));
       };
-
+  
       const removedItems = removeItem(prevItems, draggedItem.id);
       return addItem(removedItems, { ...draggedItem, children: draggedItem.children || [] }, newParentId);
     });
   }, []);
+
+  useEffect(() => {
+    if (selectedItem) {
+      const updatedSelectedItem = containerItems.find(item => item.id === selectedItem.id) || null;
+      setSelectedItem(updatedSelectedItem);
+    }
+  }, [containerItems, selectedItem]);
 
   const handleDrop = useCallback((droppedItem: DraggedItem) => {
     setContainerItems(prevItems => {
@@ -309,6 +312,10 @@ const DragAndDropDemo: React.FC = () => {
     alert(html);
   };
 
+  const handleItemClick = (item: ItemType) => {
+    setSelectedItem(selectedItem?.id === item.id ? null : item);
+  };
+
   useEffect(() => {
     setAvailableItems([
       { id: uuidv4(), type: 'Button', children: [] },
@@ -326,14 +333,31 @@ const DragAndDropDemo: React.FC = () => {
         <div style={{ width: '200px', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
           <h3 style={{ marginBottom: '16px' }}>Available Items</h3>
           {availableItems.map((item) => (
-            <DraggableItem key={item.id} item={item} parentId={null} moveItem={() => {}} />
+            <DraggableItem key={item.id} item={item} parentId={null} moveItem={() => {}} onClick={handleItemClick} />
           ))}
         </div>
-        <Container items={containerItems} moveItem={moveItem} onDrop={handleDrop} />
+        <Container items={containerItems} moveItem={moveItem} onDrop={handleDrop} onClick={handleItemClick} />
         <TrashBin onDrop={handleTrashDrop} />
         <div style={{ width: '200px', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
           <h3 style={{ marginBottom: '16px' }}>Tree View</h3>
           <TreeView items={containerItems} />
+        </div>
+        <div style={{ width: '200px', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
+          <h3 style={{ marginBottom: '16px' }}>Selected Item</h3>
+          {selectedItem ? (
+            <div>
+              <p><strong>Type:</strong> {selectedItem.type}</p>
+              <p><strong>ID:</strong> {selectedItem.id}</p>
+              {selectedItem.children && (
+                <div>
+                  <strong>Children:</strong>
+                  <TreeView items={selectedItem.children} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <p>No item selected</p>
+          )}
         </div>
       </div>
       <button onClick={handlePrintHtml} style={{ marginTop: '16px', padding: '8px 16px', borderRadius: '4px', border: 'none', backgroundColor: '#007BFF', color: 'white', cursor: 'pointer' }}>
