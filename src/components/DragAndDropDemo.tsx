@@ -2,31 +2,62 @@ import React, { useState, useRef, useCallback, useEffect, ComponentType } from '
 import { DndProvider, useDrag, useDrop, DropTargetMonitor } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { v4 as uuidv4 } from 'uuid';
+import data from '../nodeModulesList.json'
 
-const components = {
-  Button: () => <button style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', backgroundColor: '#007BFF', color: 'white', cursor: 'pointer' }}>Button</button>,
-  Input: () => <input placeholder="Input" style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', width: '100%' }} />,
-  Text: () => <p style={{ margin: '0', padding: '8px', borderRadius: '4px', backgroundColor: '#f5f5f5' }}>Text</p>,
-  Div: ({ children }: { children?: React.ReactNode }) => <div style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#e9ecef' }}>div{children}</div>,
-  Row: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'row', gap: '8px', padding: '8px', borderRadius: '4px', backgroundColor: '#e9ecef' }}>row{children}</div>,
-  Column: ({ children }: { children?: React.ReactNode }) => <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px', borderRadius: '4px', backgroundColor: '#e9ecef' }}>column{children}</div>,
-};
+// #region componentsList.ts
 
-const canHaveChildren = {
-  Button: false,
-  Input: false,
-  Text: false,
-  Div: true,
-  Row: true,
-  Column: true,
-};
-
-interface ItemType {
-  id: string;
-  type: keyof typeof components;
-  children?: ItemType[];
+interface ComponentDefinition {
+  type: string;
+  component: ComponentType<{ children?: React.ReactNode; [key: string]: any }>;
+  canHaveChildren: boolean;
+  editableProps: { [key: string]: string }; // key is prop name, value is prop type (e.g., 'string')
 }
 
+const componentDefinitions : ComponentDefinition[]= [
+  {
+    type: 'Button',
+    component: ({ text }) => <button style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', backgroundColor: '#007BFF', color: 'white', cursor: 'pointer' }}>{text || 'Button'}</button>,
+    canHaveChildren: false,
+    editableProps: { text: 'string' },
+  },
+  {
+    type: 'Input',
+    component: ({ placeholder }) => <input placeholder={placeholder || 'Input'} style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', width: '100%' }} />,
+    canHaveChildren: false,
+    editableProps: { placeholder: 'string' },
+  },
+  {
+    type: 'Text',
+    component: ({ text }) => <p style={{ margin: '0', padding: '8px', borderRadius: '4px', backgroundColor: '#f5f5f5' }}>{text || 'Text'}</p>,
+    canHaveChildren: false,
+    editableProps: { text: 'string' },
+  },
+  {
+    type: 'Div',
+    component: ({ children }) => <div style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#e9ecef' }}>div{children}</div>,
+    canHaveChildren: true,
+    editableProps: {},
+  },
+  {
+    type: 'Row',
+    component: ({ children }) => <div style={{ display: 'flex', flexDirection: 'row', gap: '8px', padding: '8px', borderRadius: '4px', backgroundColor: '#e9ecef' }}>row{children}</div>,
+    canHaveChildren: true,
+    editableProps: {},
+  },
+  {
+    type: 'Column',
+    component: ({ children }) => <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px', borderRadius: '4px', backgroundColor: '#e9ecef' }}>column{children}</div>,
+    canHaveChildren: true,
+    editableProps: {},
+  },
+];
+
+const components = Object.fromEntries(componentDefinitions.map(({ type, component }) => [type, component]));
+const canHaveChildren = Object.fromEntries(componentDefinitions.map(({ type, canHaveChildren }) => [type, canHaveChildren]));
+const editableProps = Object.fromEntries(componentDefinitions.map(({ type, editableProps }) => [type, editableProps]));
+// #endregion
+
+// #region withClickHandler.ts
 function withClickHandler<T>(WrappedComponent: ComponentType<T>) {
   return (props: T & { onClick?: () => void }) => {
     const handleClick = () => {
@@ -42,23 +73,21 @@ function withClickHandler<T>(WrappedComponent: ComponentType<T>) {
     );
   };
 }
+// #endregion
 
-// Example usage of HOC
-const ClickableButton = withClickHandler(components.Button);
-const ClickableInput = withClickHandler(components.Input);
-const ClickableText = withClickHandler(components.Text);
-const ClickableDiv = withClickHandler(components.Div);
-const ClickableRow = withClickHandler(components.Row);
-const ClickableColumn = withClickHandler(components.Column);
+// #region ClickableComponents.ts
+const ClickableComponents = Object.fromEntries(
+  Object.entries(components).map(([key, component]) => [key, withClickHandler(component)])
+);
+// #endregion
 
-const ClickableComponents = {
-  Button: ClickableButton,
-  Input: ClickableInput,
-  Text: ClickableText,
-  Div: ClickableDiv,
-  Row: ClickableRow,
-  Column: ClickableColumn,
-};
+// #region DraggableItem.ts
+interface ItemType {
+  id: string;
+  type: keyof typeof components;
+  props: { [key: string]: any };
+  children?: ItemType[];
+}
 
 interface DraggedItem extends ItemType {
   parentId: string | null;
@@ -120,7 +149,7 @@ const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveIte
         onClick(item);
       }}
     >
-      <ClickableComponent>
+      <ClickableComponent {...item.props}>
         {item?.children?.map((child) => (
           <DraggableItem key={child.id} item={child} parentId={item.id} moveItem={moveItem} onClick={onClick} />
         ))}
@@ -128,7 +157,9 @@ const DraggableItem: React.FC<{ item: ItemType; parentId: string | null; moveIte
     </div>
   );
 };
+// #endregion
 
+// #region Container.ts
 const Container: React.FC<{ items: ItemType[]; moveItem: (draggedItem: DraggedItem, newParentId: string | null) => void; onDrop: (item: DraggedItem) => void; onClick: (item: ItemType) => void }> = ({ items, moveItem, onDrop, onClick }) => {
   const [, drop] = useDrop({
     accept: 'ITEM',
@@ -158,7 +189,9 @@ const Container: React.FC<{ items: ItemType[]; moveItem: (draggedItem: DraggedIt
     </div>
   );
 };
+// #endregion
 
+// #region TrashBin.ts
 const TrashBin: React.FC<{ onDrop: (item: DraggedItem) => void }> = ({ onDrop }) => {
   const [, drop] = useDrop({
     accept: 'ITEM',
@@ -186,7 +219,9 @@ const TrashBin: React.FC<{ onDrop: (item: DraggedItem) => void }> = ({ onDrop })
     </div>
   );
 };
+// #endregion
 
+// #region TreeView.ts
 const TreeView: React.FC<{ items: ItemType[] }> = ({ items }) => {
   return (
     <ul style={{ listStyleType: 'none', paddingLeft: '16px' }}>
@@ -199,21 +234,25 @@ const TreeView: React.FC<{ items: ItemType[] }> = ({ items }) => {
     </ul>
   );
 };
+// #endregion
 
+// #region utils.ts
 const renderHtml = (items: ItemType[]): string => {
   const renderElement = (item: ItemType): string => {
     const childrenHtml = item.children?.map(renderElement).join('') || '';
-    return `<${item.type.toLowerCase()}>${childrenHtml}</${item.type.toLowerCase()}>`;
+    return `<${item.type}>${childrenHtml}</${item.type}>`;
   };
 
   return items.map(renderElement).join('');
 };
+// #endregion
 
+// #region Preview.ts
 const Preview: React.FC<{ items: ItemType[] }> = ({ items }) => {
   const renderPreview = (item: ItemType): JSX.Element => {
     const Component = components[item.type];
     return (
-      <Component key={item.id}>
+      <Component key={item.id} {...item.props}>
         {canHaveChildren[item.type] && item.children && item.children.map(renderPreview)}
       </Component>
     );
@@ -235,16 +274,39 @@ const Preview: React.FC<{ items: ItemType[] }> = ({ items }) => {
     </div>
   );
 };
+// #endregion
 
+// #region EditableProperties.tsx
+const EditableProperties: React.FC<{ selectedItem: ItemType; onChange: (key: string, value: any) => void }> = ({ selectedItem, onChange }) => {
+  if (!selectedItem) {
+    return <p>No item selected</p>;
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    onChange(name, value);
+  };
+
+  const componentEditableProps = editableProps[selectedItem.type];
+
+  return (
+    <div>
+      <p><strong>Type:</strong> {selectedItem.type}</p>
+      <p><strong>ID:</strong> {selectedItem.id}</p>
+      {Object.entries(componentEditableProps).map(([propName, propType]) => (
+        <div key={propName}>
+          <label>{propName}: </label>
+          <input name={propName} value={selectedItem.props[propName] || ''} onChange={handleChange} />
+        </div>
+      ))}
+    </div>
+  );
+};
+// #endregion
+
+// #region DragAndDropDemo.tsx
 const DragAndDropDemo: React.FC = () => {
-  const initialItems: ItemType[] = [
-    { id: uuidv4(), type: 'Button', children: [] },
-    { id: uuidv4(), type: 'Input', children: [] },
-    { id: uuidv4(), type: 'Text', children: [] },
-    { id: uuidv4(), type: 'Div', children: [] },
-    { id: uuidv4(), type: 'Row', children: [] },
-    { id: uuidv4(), type: 'Column', children: [] },
-  ];
+  const initialItems: ItemType[] = componentDefinitions.map(def => ({ id: uuidv4(), type: def.type, props: {}, children: [] }));
 
   const [availableItems, setAvailableItems] = useState<ItemType[]>(initialItems);
   const [containerItems, setContainerItems] = useState<ItemType[]>([]);
@@ -260,7 +322,7 @@ const DragAndDropDemo: React.FC = () => {
           }))
           .filter(item => item.id !== id);
       };
-  
+
       const addItem = (items: ItemType[], newItem: ItemType, parentId: string | null): ItemType[] => {
         if (!parentId) {
           return [...items, newItem];
@@ -272,7 +334,7 @@ const DragAndDropDemo: React.FC = () => {
             : item.children ? addItem(item.children, newItem, parentId) : [],
         }));
       };
-  
+
       const removedItems = removeItem(prevItems, draggedItem.id);
       return addItem(removedItems, { ...draggedItem, children: draggedItem.children || [] }, newParentId);
     });
@@ -293,14 +355,12 @@ const DragAndDropDemo: React.FC = () => {
       }
       return null;
     };
-  
+
     if (selectedItem) {
       const updatedSelectedItem = findItemById(containerItems, selectedItem.id);
       setSelectedItem(updatedSelectedItem);
-      console.log("selectedEffect");
     }
   }, [containerItems, selectedItem]);
-  
 
   const handleDrop = useCallback((droppedItem: DraggedItem) => {
     setContainerItems(prevItems => {
@@ -333,20 +393,32 @@ const DragAndDropDemo: React.FC = () => {
 
   const handleItemClick = (item: ItemType) => {
     setSelectedItem(selectedItem?.id === item.id ? null : item);
-    console.log("clicked on " + item.type)
-    
+  };
+
+  const handlePropertyChange = (key: string, value: any) => {
+    setContainerItems(prevItems => {
+      const updateItemProps = (items: ItemType[]): ItemType[] => {
+        return items.map(item => {
+          if (item.id === selectedItem?.id) {
+            return { ...item, props: { ...item.props, [key]: value } };
+          }
+          if (item.children) {
+            return { ...item, children: updateItemProps(item.children) };
+          }
+          return item;
+        });
+      };
+      return updateItemProps(prevItems);
+    });
   };
 
   useEffect(() => {
-    setAvailableItems([
-      { id: uuidv4(), type: 'Button', children: [] },
-      { id: uuidv4(), type: 'Input', children: [] },
-      { id: uuidv4(), type: 'Text', children: [] },
-      { id: uuidv4(), type: 'Div', children: [] },
-      { id: uuidv4(), type: 'Row', children: [] },
-      { id: uuidv4(), type: 'Column', children: [] },
-    ]);
+    setAvailableItems(componentDefinitions.map(def => ({ id: uuidv4(), type: def.type, props: {}, children: [] })));
   }, [containerItems]);
+
+  useEffect(() => {
+    //alert(JSON.stringify(data))
+  }, []);
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -366,16 +438,7 @@ const DragAndDropDemo: React.FC = () => {
         <div style={{ width: '200px', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
           <h3 style={{ marginBottom: '16px' }}>Selected Item</h3>
           {selectedItem ? (
-            <div>
-              <p><strong>Type:</strong> {selectedItem.type}</p>
-              <p><strong>ID:</strong> {selectedItem.id}</p>
-              {selectedItem.children && (
-                <div>
-                  <strong>Children:</strong>
-                  <TreeView items={selectedItem.children} />
-                </div>
-              )}
-            </div>
+            <EditableProperties selectedItem={selectedItem} onChange={handlePropertyChange} />
           ) : (
             <p>No item selected</p>
           )}
@@ -389,5 +452,6 @@ const DragAndDropDemo: React.FC = () => {
     </DndProvider>
   );
 };
+// #endregion
 
 export default DragAndDropDemo;
